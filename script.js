@@ -14,14 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-var truncate = function(str, width, left) {
+var truncate = function(str, width, left, last4bold=false) {
   if (!str) return "";
 
 	if (str.length > width) {
     if (left) {
   		return str.slice(0, width) + "...";
     } else {
-  		return "..." + str.slice(str.length - width, str.length);
+      string1 = str.slice(str.length - width, str.length);
+      boldstring = str.slice(str.length - 4, str.length);
+      return "..." + string1 + "<b>"+boldstring+"</b>"
     }
 	}
 	return str;
@@ -33,6 +35,9 @@ var controllers = [];
 var uses = {};
 
 var groups = {};
+
+// override priorities for your own names :P
+var originalGroupScores = {"beer-gui": 10, "beer-repository": 12, "beer-provider": 11, "elasticsearch": 13, "no-service": 14};
 
 var insertByName = function(index, value) {
   if (!value || !value.metadata.labels || !value.metadata.name) {
@@ -66,7 +71,7 @@ var matchesLabelQuery = function(labels, selector) {
 }
 
 var connectControllers = function() {
-    connectUses();
+  connectUses();
 	for (var i = 0; i < controllers.items.length; i++) {
 		var controller = controllers.items[i];
     //console.log("controller: " + controller.metadata.name)
@@ -76,7 +81,7 @@ var connectControllers = function() {
         if (controller.metadata.labels.version && pod.metadata.labels.version && (controller.metadata.labels.version != pod.metadata.labels.version)) {
           continue;
         }
-        //console.log('connect controller: ' + 'controller-' + controller.metadata.name + ' to pod-' + pod.metadata.name);
+        console.log('connect controller: ' + 'controller-' + controller.metadata.name + ' to pod-' + pod.metadata.name);
 				jsPlumb.connect({
 					source: 'controller-' + controller.metadata.name,
 					target: 'pod-' + pod.metadata.name,
@@ -93,10 +98,9 @@ var connectControllers = function() {
     //            if (service.metadata.name == 'kubernetes' || service.metadata.name == 'skydns' || service.metadata.name == 'kubernetes-ro') { continue; }
 		for (var j = 0; j < pods.items.length; j++) {
 			var pod = pods.items[j];
-      //console.log('connect service: ' + 'service-' + service.metadata.name + ' to pod-' + pod.metadata.name);
+      console.log('connect service: ' + 'service-' + service.metadata.name + ' to pod-' + pod.metadata.name);
 			if (matchesLabelQuery(pod.metadata.labels, service.spec.selector)) {
-				jsPlumb.connect(
-					{
+				jsPlumb.connect({
 						source: 'service-' + service.metadata.name,
 						target: 'pod-' + pod.metadata.name,
 						anchors:["Bottom", "Top"],
@@ -132,11 +136,11 @@ var connectUses = function() {
          //console.log('connect uses key: ' +key + ', ' + podKey);
 			if (podKey == key) {
 				$.each(list, function(j, serviceId) {
-          //console.log('connect: ' + 'pod-' + pod.metadata.name + ' to service-' + serviceId);
-					jsPlumb.connect(
-					{
+          console.log('connect: ' + 'pod-' + pod.metadata.name + ' to service-' + serviceId);
+					jsPlumb.connect({
 						source: 'pod-' + pod.metadata.name,
-						target: 'service-' + serviceId,
+						//target: 'service-' + serviceId,
+            target: 'service-' + serviceId + '-service',
 						endpoint: "Blank",
 						//anchors:["Bottom", "Top"],
             anchors:[[ 0.5, 1, 0, 1, -30, 0 ], "Top"],
@@ -156,7 +160,10 @@ var connectUses = function() {
 };
 
 var makeGroupOrder = function() {
-  var groupScores = {};
+  //var groupScores = originalGroupScores;
+  var groupScores = jQuery.extend({}, originalGroupScores);
+  //console.log(groups);
+  //var groupScores = {};
   $.each(groups, function(key, val) {
     //console.log("group key: " + key);
 		if (!groupScores[key]) {
@@ -185,7 +192,7 @@ var makeGroupOrder = function() {
 	});
   groupOrder.sort(function(a, b) { return groupScores[a] - groupScores[b]; });
 
-	//console.log(groupOrder);
+	//console.log(groupScores);
   return groupOrder;
 };
 
@@ -193,7 +200,7 @@ var renderNodes = function() {
 	var y = 25;
 	var x = 100;
   $.each(nodes.items, function(index, value) {
-    console.log(value);
+    //console.log(value);
 		var div = $('<div/>');
     var ready = 'not_ready';
     $.each(value.status.conditions, function(index, condition) {
@@ -204,15 +211,15 @@ var renderNodes = function() {
 
  		var eltDiv = $('<div class="window node ' + ready + '" title="' + value.metadata.name + '" id="node-' + value.metadata.name +
                  '" style="left: ' + (x + 250) + '; top: ' + y + '"/>');
-	  eltDiv.html('<span><b>Node</b><br/><br/>' + 
-          truncate(value.metadata.name, 6) +
+	  eltDiv.html('<span><b>Node</b><br/><br/>' +
+          truncate(value.metadata.name, 6, false, true) +
           '</span>');
     div.append(eltDiv);
 
 	  var elt = $('.nodesbar');
 		elt.append(div);
 
-    x += 120;
+    x += 150;
  });
 }
 
@@ -221,7 +228,7 @@ var renderGroups = function() {
 	var y = 10;
 	var serviceLeft = 0;
 	var groupOrder = makeGroupOrder();
-  var counts = {} 
+  var counts = {}
 	$.each(groupOrder, function(ix, key) {
 		list = groups[key];
 		// list = value;
@@ -231,9 +238,9 @@ var renderGroups = function() {
 		var div = $('<div/>');
 		var x = 100;
 		$.each(list, function(index, value) {
-      //console.log("render groups: " + value.type + ", " + value.metadata.name + ", " + index)
+      console.log("render groups: " + value.type + ", " + value.metadata.name + ", " + index)
 			var eltDiv = null;
-      console.log(value);
+      //console.log(value);
       var phase = value.status.phase ? value.status.phase.toLowerCase() : '';
 			if (value.type == "pod") {
         if ('deletionTimestamp' in value.metadata) {
@@ -241,17 +248,17 @@ var renderGroups = function() {
         }
 				eltDiv = $('<div class="window pod ' + phase + '" title="' + value.metadata.name + '" id="pod-' + value.metadata.name +
 					'" style="left: ' + (x + 250) + '; top: ' + (y + 160) + '"/>');
-				eltDiv.html('<span>' + 
-          truncate(value.metadata.name, 8, true) +
+				eltDiv.html('<span>' +
+          truncate(value.metadata.name, 16, true) +
           (value.metadata.labels.version ? "<br/>" + value.metadata.labels.version : "") + "<br/><br/>" +
           "(" + (value.spec.nodeName ? truncate(value.spec.nodeName, 6) : "None")  +")" +
           '</span>');
 			} else if (value.type == "service") {
 				eltDiv = $('<div class="window wide service ' + phase + '" title="' + value.metadata.name + '" id="service-' + value.metadata.name +
 					'" style="left: ' + 75 + '; top: ' + y + '"/>');
-				eltDiv.html('<span>' + 
+				eltDiv.html('<span>' +
           value.metadata.name +
-          (value.metadata.labels.version ? "<br/><br/>" + value.metadata.labels.version : "") + 
+          (value.metadata.labels.version ? "<br/><br/>" + value.metadata.labels.version : "") +
           (value.spec.clusterIP ? "<br/><br/>" + value.spec.clusterIP : "") +
           (value.status.loadBalancer && value.status.loadBalancer.ingress ? "<br/><a style='color:white; text-decoration: underline' href='http://" + value.status.loadBalancer.ingress[0].ip + "'>" + value.status.loadBalancer.ingress[0].ip + "</a>" : "") +
           '</span>');
@@ -265,15 +272,15 @@ var renderGroups = function() {
         var left = minLeft > calcLeft ? minLeft : calcLeft;
 				eltDiv = $('<div class="window wide controller" title="' + value.metadata.name + '" id="controller-' + value.metadata.name +
 					'" style="left: ' + (left + counts[key] * 100) + '; top: ' + (y + 100 + counts[key] * 100) + '"/>');
-				eltDiv.html('<span>' + 
+				eltDiv.html('<span>' +
           value.metadata.name +
-          (value.metadata.labels.version ? "<br/><br/>" + value.metadata.labels.version : "") + 
+          (value.metadata.labels.version ? "<br/><br/>" + value.metadata.labels.version : "") +
           '</span>');
 			}
 			div.append(eltDiv);
 			x += 130;
 		});
-		y += 400;
+		y += 300;
 		serviceLeft += 200;
 		elt.append(div);
 	});
@@ -360,7 +367,7 @@ function refresh(instance) {
 
 		setTimeout(function() {
 			refresh(instance);
-		}, 2000);
+		}, 3000);
   });
 }
 
@@ -381,6 +388,7 @@ jsPlumb.bind("ready", function() {
 		Container:"flowchart-demo"
 	});
 
+  //myJsPlumb = instance;
 	refresh(instance);
 	jsPlumb.fire("jsPlumbDemoLoaded", instance);
   });

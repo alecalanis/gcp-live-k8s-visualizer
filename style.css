@@ -73,5 +73,9 @@
 }
 
 .terminating {
-  background-color: red;
+  background-color: darkred;
+}
+
+.running {
+  background-color: lightgreen;
 }
